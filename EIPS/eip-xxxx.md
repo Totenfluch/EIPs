@@ -1,7 +1,7 @@
 ---
 title: Recall Tracing Token
 description: A standardized token for managing recalls in a supply chain that enables efficient traceability and communication between manufacturers, distributors, and customers.
-author: Christian Ziegler (@Totenfluch), Norman Pytell <foo@bar.com>
+author: Christian Ziegler (@Totenfluch), Norman Pytell
 discussions-to: TODO
 status: Draft
 type: Standards Track
