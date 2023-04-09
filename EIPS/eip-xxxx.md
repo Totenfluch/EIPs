@@ -25,7 +25,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 Please see the provided Solidity interface for the detailed function specifications, events, and data structures.
 
 ```
-    /** @dev 
+ /** @dev 
         The `_announcer` argument MUST be the address of an account/contract that currently owns the token
         The `_tokenId` argument MUST be the token being announced defect
     */
@@ -42,11 +42,35 @@ Please see the provided Solidity interface for the detailed function specificati
         The `_tokenId` argument MUST be the token being announced defect
         The `_resultState` argument must be {CHECKED_NO_DEFECT, CHECKED_DEFECT}
     */
-    event TokenChecked(address indexed _announcer, uint256 _tokenId, TokenCheckingState _resultState);
-    
-    enum TokenState {OK, ON_HOLD, NOT_OK}
+    event TokenChecked(
+        address indexed _announcer,
+        uint256 _tokenId,
+        TokenCheckingState _resultState
+    );
 
-    enum TokenCheckingState {NONE, PLEASE_CHECK, CHECKED_NO_DEFECT, CHECKED_DEFECT}
+    /** @dev 
+        The `_announcer` argument MUST be the address of an account/contract approved to manage the token
+        The `_tokenId` argument MUST be the token that the manufacturers are merged into
+        The `_mergedTokenId` MUST be the token that the manufacturers are sourced from
+    */
+    event TokenMerged(
+        address indexed _announcer,
+        uint256 _tokenId,
+        uint256 _mergedTokenId
+    );
+
+    enum TokenState {
+        OK,
+        ON_HOLD,
+        NOT_OK
+    }
+
+    enum TokenCheckingState {
+        NONE,
+        PLEASE_CHECK,
+        CHECKED_NO_DEFECT,
+        CHECKED_DEFECT
+    }
 
     /**
         @notice Changes the `TokenState` for a token specified by `_tokenId` to `{NOT_OK}`
@@ -67,7 +91,10 @@ Please see the provided Solidity interface for the detailed function specificati
         @param _tokenId             The defect Token
         @param _tokenCheckingState  Result state of the check
     */
-    function checkToken(uint256 _tokenId, TokenCheckingState _tokenCheckingState) external;
+    function checkToken(
+        uint256 _tokenId,
+        TokenCheckingState _tokenCheckingState
+    ) external;
 
     /**
         @notice Changes the `TokenState` for all token specified by `_tokenIds` to `{NOT_OK}`
@@ -77,6 +104,19 @@ Please see the provided Solidity interface for the detailed function specificati
         @param _tokenIds           The defect Token
     */
     function forwardRecall(uint256[] calldata _tokenIds) external;
+
+    /** @dev 
+        The `_tokenIdMergeTo` argument MUST be the token that the manufacturers are merged into
+        The `_tokenIdMergeSource` MUST be the token that the manufacturers are sourced from
+    */
+    function mergeToken(uint256 _tokenIdMergeTo, uint256 _tokenIdMergeSource) external;
+
+    /** @dev 
+        The `_tokenContractAddress` MUST be a ERCxxx contract
+        The `_tokenIdMergeTo` argument MUST be the token that the manufacturers are merged into
+        The `_tokenIdMergeSource` MUST be the token that the manufacturers are sourced from
+    */
+    function mergeExternalToken(address _tokenContractAddress, uint256 _tokenIdMergeTo, uint256 _tokenIdMergeSource) external;
 ```
 
 ## Backwards Compatibility
@@ -86,17 +126,21 @@ No backward compatibility issues found.
 ## Reference Implementation
 
 ```
-pragma solidity ^0.8.19;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.18;
+
+import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
-    @title ERC-ERC4242 Recall Tracing Token
-    @dev See https://eips.ethereum.org/EIPS/eip-ERC4242
+    @title ERC-ERCxxxx Recall Tracing Token
+    @dev See https://eips.ethereum.org/EIPS/eip-ERCxxxx
     @notice This contract represents a recall tracing token standard that allows manufacturers, distributors, and customers
             to announce defects, check tokens, and forward recalls based on unique product IDs (TokenIDs). 
             It enables efficient traceability and communication within a product supply chain.
  */
 
-contract ERC4242 is erc1155i, erc165i {
+contract RecallToken is ERC1155, Ownable {
     /** @dev 
         The `_announcer` argument MUST be the address of an account/contract that currently owns the token
         The `_tokenId` argument MUST be the token being announced defect
@@ -114,26 +158,81 @@ contract ERC4242 is erc1155i, erc165i {
         The `_tokenId` argument MUST be the token being announced defect
         The `_resultState` argument must be {CHECKED_NO_DEFECT, CHECKED_DEFECT}
     */
-    event TokenChecked(address indexed _announcer, uint256 _tokenId, TokenCheckingState _resultState);
-    
-    enum TokenState {OK, ON_HOLD, NOT_OK}
+    event TokenChecked(
+        address indexed _announcer,
+        uint256 _tokenId,
+        TokenCheckingState _resultState
+    );
 
-    enum TokenCheckingState {NONE, PLEASE_CHECK, CHECKED_NO_DEFECT, CHECKED_DEFECT}
+    /** @dev 
+        The `_announcer` argument MUST be the address of an account/contract approved to manage the token
+        The `_tokenId` argument MUST be the token that the manufacturers are merged into
+        The `_mergedTokenId` MUST be the token that the manufacturers are sourced from
+        The `_manufacturers` MUST all the distinct array combination of manufacturers of _tokenId and _mergedTokenId
+    */
+    event TokenMerged(
+        address indexed _announcer,
+        uint256 _tokenId,
+        uint256 _mergedTokenId,
+        address[] _manufacturers
+    );
 
-    address[] manufacturers;
+    enum TokenState {
+        OK,
+        ON_HOLD,
+        NOT_OK
+    }
+
+    enum TokenCheckingState {
+        NONE,
+        PLEASE_CHECK,
+        CHECKED_NO_DEFECT,
+        CHECKED_DEFECT
+    }
+
+    mapping(uint256 => address[]) manufacturers;
+
+    function getManufacturersOfToken(
+        uint256 _tokenId
+    ) public view returns (address[] memory) {
+        return manufacturers[_tokenId];
+    }
 
     mapping(address => mapping(uint256 => TokenCheckingState)) manufacturerTokenCheckingStates;
 
+    function getManufacturerTokenCheckingStateValue(
+        address _address,
+        uint256 _tokenId
+    ) public view returns (TokenCheckingState) {
+        return manufacturerTokenCheckingStates[_address][_tokenId];
+    }
+
     mapping(uint256 => TokenCheckingState) public tokenCheckingStates;
+
+    function getTokenCheckingState(
+        uint256 _tokenId
+    ) public view returns (TokenCheckingState) {
+        return tokenCheckingStates[_tokenId];
+    }
 
     mapping(uint256 => TokenState) public tokenStates;
 
+    function getTokenStateValue(
+        uint256 _tokenId
+    ) public view returns (TokenState) {
+        return tokenStates[_tokenId];
+    }
+
     mapping(uint256 => bool) public inProduction;
 
-    modifier _isManufacturer {
+    function getInProductionValue(uint256 _tokenId) public view returns (bool) {
+        return inProduction[_tokenId];
+    }
+
+    modifier _isManufacturer(uint256 _tokenId) {
         bool tempIsManufacturer = false;
-        for (uint i = 0; i < manufacturers.length; i++) {
-            if (msg.sender == manufacturers[i]) {
+        for (uint i = 0; i < manufacturers[_tokenId].length; i++) {
+            if (_msgSender() == manufacturers[_tokenId][i]) {
                 tempIsManufacturer = true;
                 break;
             }
@@ -142,6 +241,16 @@ contract ERC4242 is erc1155i, erc165i {
         require(tempIsManufacturer == true, "Must be Manufacturer");
         _;
     }
+
+    function _authorizedForToken(address _from, uint256 _tokenId) public view {
+        require(balanceOf(_msgSender(), _tokenId) >= 1, "No Token owned");
+        require(
+            _from == _msgSender() || isApprovedForAll(_from, _msgSender()),
+            "Caller is not Token Owner or approved"
+        );
+    }
+
+    constructor(string memory uri) ERC1155(uri) {}
 
     /**
         @notice Changes the `TokenState` for a token specified by `_tokenId` to `{NOT_OK}`
@@ -152,11 +261,11 @@ contract ERC4242 is erc1155i, erc165i {
         @param _tokenId   The defect Token
     */
     function announceDefect(uint256 _tokenId) public {
-        emit DefectAnnounced(msg.sender, _tokenId);
+        _authorizedForToken(_msgSender(), _tokenId);
         bool isManufacturer = false;
         uint selectedManufacturer = 0;
-        for (uint i = 0; i < manufacturers.length; i++) {
-            if (msg.sender == manufacturers[i]) {
+        for (uint i = 0; i < manufacturers[_tokenId].length; i++) {
+            if (_msgSender() == manufacturers[_tokenId][i]) {
                 isManufacturer = true;
                 selectedManufacturer = i;
                 break;
@@ -164,14 +273,18 @@ contract ERC4242 is erc1155i, erc165i {
         }
         if (isManufacturer) {
             tokenStates[_tokenId] = TokenState.NOT_OK;
+            emit DefectAnnounced(_msgSender(), _tokenId);
             return;
         } else {
             tokenStates[_tokenId] = TokenState.ON_HOLD;
         }
 
-        for (uint i = 0; i < manufacturers.length; i++) {
-            manufacturerTokenCheckingStates[manufacturers[i]][_tokenId] = TokenCheckingState.PLEASE_CHECK;
-        } 
+        for (uint i = 0; i < manufacturers[_tokenId].length; i++) {
+            manufacturerTokenCheckingStates[manufacturers[_tokenId][i]][
+                _tokenId
+            ] = TokenCheckingState.PLEASE_CHECK;
+        }
+        emit DefectAnnounced(_msgSender(), _tokenId);
     }
 
     /**
@@ -183,15 +296,25 @@ contract ERC4242 is erc1155i, erc165i {
         @param _tokenId             The defect Token
         @param _tokenCheckingState  Result state of the check
     */
-    function checkToken(uint256 _tokenId, TokenCheckingState _tokenCheckingState) _isManufacturer public {
+    function checkToken(
+        uint256 _tokenId,
+        TokenCheckingState _tokenCheckingState
+    ) public _isManufacturer(_tokenId) {
         uint selectedManufacturer = 0;
-        for (uint i = 0; i < manufacturers.length; i++) {
-            if (msg.sender == manufacturers[i]) {
+        for (uint i = 0; i < manufacturers[_tokenId].length; i++) {
+            if (_msgSender() == manufacturers[_tokenId][i]) {
                 selectedManufacturer = i;
                 break;
             }
         }
-        manufacturerTokenCheckingStates[msg.sender][_tokenId] = _tokenCheckingState;
+        require(
+            manufacturerTokenCheckingStates[_msgSender()][_tokenId] ==
+                TokenCheckingState.PLEASE_CHECK,
+            "Token can not be checked"
+        );
+        manufacturerTokenCheckingStates[_msgSender()][
+            _tokenId
+        ] = _tokenCheckingState;
     }
 
     /**
@@ -202,22 +325,200 @@ contract ERC4242 is erc1155i, erc165i {
         @param _tokenIds           The defect Token
     */
     function forwardRecall(uint256[] calldata _tokenIds) public {
-        emit ForwardRecall(msg.sender, _tokenIds);
-        for (uint i = 0; i < _tokenIds.length; i ++) {
+        for (uint i = 0; i < _tokenIds.length; i++) {
+            bool tempIsManufacturer = false;
+            for (uint x = 0; x < manufacturers[_tokenIds[i]].length; x++) {
+                if (_msgSender() == manufacturers[_tokenIds[i]][x]) {
+                    tempIsManufacturer = true;
+                    break;
+                }
+            }
+            require(
+                tempIsManufacturer == true,
+                "Not a Manufacturer of this Token"
+            );
+        }
+        for (uint i = 0; i < _tokenIds.length; i++) {
             tokenStates[_tokenIds[i]] = TokenState.NOT_OK;
         }
+        emit ForwardRecall(_msgSender(), _tokenIds);
     }
 
-    function transfer(address _receiver, uint256 _tokenId, bool _internal) public {
+    /**
+     * @dev See {IERC1155-safeTransferFrom}.
+     * if _internal is true, receiver will be added as manufacturer, otherwise not
+     * after _internal is set false for one transfer, receivers will no longer be added as manufacturers
+     */
+    function transferRecallToken(
+        address _receiver,
+        uint256 _tokenId,
+        uint256 amount,
+        bytes memory data,
+        bool _internal
+    ) public {
+        safeTransferFrom(_msgSender(), _receiver, _tokenId, amount, data);
         if (inProduction[_tokenId] && _internal) {
-            manufacturers.push(_receiver);
+            appendUniqueManufacturerOfToken(_receiver, _tokenId);
         }
         if (!_internal && !inProduction[_tokenId]) {
             inProduction[_tokenId] = false;
         }
-        // safeTransferFrom()
+    }
+
+    /**
+     * @dev See {IERC1155-safeBatchTransferFrom}.
+     * if _internal is true, receiver will be added as manufacturer, otherwise not
+     * after _internal is set false for one transfer, receivers will no longer be added as manufacturers
+     */
+    function batchTransferRecallToken(
+        address _receiver,
+        uint256[] calldata _tokenIds,
+        uint256[] calldata _amounts,
+        bytes memory data,
+        bool _internal
+    ) public {
+        safeBatchTransferFrom(
+            _msgSender(),
+            _receiver,
+            _tokenIds,
+            _amounts,
+            data
+        );
+        for (uint256 i = 0; i < _tokenIds.length; i++) {
+            if (inProduction[_tokenIds[i]] && _internal) {
+                appendUniqueManufacturerOfToken(_receiver, _tokenIds[i]);
+            }
+            if (!_internal && !inProduction[_tokenIds[i]]) {
+                inProduction[_tokenIds[i]] = false;
+            }
+        }
+    }
+
+    /**
+     * @dev Creates `amount` tokens of token type `id`, and assigns them to `to`.
+     *
+     * Emits a {TransferSingle} event.
+     *
+     * Requirements:
+     *
+     * - `to` cannot be the zero address.
+     * - If `to` refers to a smart contract, it must implement {IERC1155Receiver-onERC1155Received} and return the
+     * acceptance magic value.
+     */
+    function mint(
+        address to,
+        uint256 id,
+        uint256 amount,
+        bytes memory data
+    ) public onlyOwner {
+        _mint(to, id, amount, data);
+        inProduction[id] = true;
+        manufacturers[id].push(_msgSender());
+    }
+
+    /**
+     * @dev xref:ROOT:erc1155.adoc#batch-operations[Batched] version of {_mint}.
+     *
+     * Emits a {TransferBatch} event.
+     *
+     * Requirements:
+     *
+     * - `ids` and `amounts` must have the same length.
+     * - If `to` refers to a smart contract, it must implement {IERC1155Receiver-onERC1155BatchReceived} and return the
+     * acceptance magic value.
+     */
+    function mintBatch(
+        address to,
+        uint256[] memory ids,
+        uint256[] memory amounts,
+        bytes memory data
+    ) public onlyOwner {
+        _mintBatch(to, ids, amounts, data);
+        for (uint256 i = 0; i < ids.length; i++) {
+            inProduction[ids[i]] = true;
+            manufacturers[ids[i]].push(_msgSender());
+        }
+    }
+
+    /** @dev 
+        The `_tokenIdMergeTo` argument MUST be the token that the manufacturers are merged into
+        The `_tokenIdMergeSource` MUST be the token that the manufacturers are sourced from
+    */
+    function mergeToken(
+        uint256 _tokenIdMergeTo,
+        uint256 _tokenIdMergeSource
+    ) public _isManufacturer(_tokenIdMergeTo) {
+        _authorizedForToken(_msgSender(), _tokenIdMergeTo);
+        //_mergeInto does not need to be owned
+        for (
+            uint256 i = 0;
+            i < manufacturers[_tokenIdMergeSource].length;
+            i++
+        ) {
+            appendUniqueManufacturerOfToken(
+                manufacturers[_tokenIdMergeSource][i],
+                _tokenIdMergeTo
+            );
+        }
+        emit TokenMerged(
+            _msgSender(),
+            _tokenIdMergeTo,
+            _tokenIdMergeSource,
+            manufacturers[_tokenIdMergeTo]
+        );
+    }
+
+    /** @dev 
+        The `_tokenContractAddress` MUST be a ERCxxx contract
+        The `_tokenIdMergeTo` argument MUST be the token that the manufacturers are merged into
+        The `_tokenIdMergeSource` MUST be the token that the manufacturers are sourced from
+    */
+    function mergeExternalToken(
+        address _tokenContractAddress,
+        uint256 _tokenIdMergeTo,
+        uint256 _tokenIdMergeSource
+    ) public _isManufacturer(_tokenIdMergeTo) {
+        _authorizedForToken(_msgSender(), _tokenIdMergeTo);
+
+        RecallToken tokenContract = RecallToken(_tokenContractAddress);
+
+        for (
+            uint256 i = 0;
+            i <
+            tokenContract.getManufacturersOfToken(_tokenIdMergeSource).length;
+            i++
+        ) {
+            appendUniqueManufacturerOfToken(
+                tokenContract.getManufacturersOfToken(_tokenIdMergeSource)[i],
+                _tokenIdMergeTo
+            );
+        }
+
+        emit TokenMerged(
+            _msgSender(),
+            _tokenIdMergeTo,
+            _tokenIdMergeSource,
+            manufacturers[_tokenIdMergeTo]
+        );
+    }
+
+    function appendUniqueManufacturerOfToken(
+        address _manufacturer,
+        uint256 _tokenId
+    ) private {
+        bool found = false;
+        for (uint256 i = 0; i < manufacturers[_tokenId].length; i++) {
+            if (manufacturers[_tokenId][i] == _manufacturer) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            manufacturers[_tokenId].push(_manufacturer);
+        }
     }
 }
+
 ```
 
 ## Security Considerations
